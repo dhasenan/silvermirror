@@ -1,0 +1,10 @@
+{
+	"name": "mirror",
+	"description": "A minimal D application.",
+	"copyright": "Copyright © 2017, dhasenan",
+	"authors": ["dhasenan"],
+	"dependencies": {
+		"arsd-official:dom": "~>1.1.0",
+		"urld": "~>2.0.0"
+	}
+}
