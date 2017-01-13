@@ -1,22 +1,25 @@
 module mirror.server;
 
 import mirror.common;
+import mirror.config;
+
+import std.array : array;
 
 import url;
 import vibe.d;
 
 class Server
 {
-    string base;
+    Config cfg;
     string baseDir;
 
     Map urlToPath;
 
-    this(string base)
+    this(Config cfg)
     {
-        this.base = base;
-        baseDir = getBaseDir(base);
-        urlToPath = new Map(getMapFile(base));
+        this.cfg = cfg;
+        baseDir = getBaseDir(cfg);
+        urlToPath = new Map(getMapFile(cfg));
     }
 
     void start()
@@ -38,7 +41,7 @@ class Server
         if (path == "/")
         {
             res.bodyWriter.write(`<html><head><title>Index of`);
-            res.bodyWriter.write(base);
+            res.bodyWriter.write(cfg.baseURL.toString);
             res.bodyWriter.write(`</title></head><body>`);
             auto s = urlToPath.pages.values.array;
             // This fails, complainingthat std.algorithm.mutation.swap can't call non-@nogc function
@@ -59,6 +62,8 @@ class Server
         if (path.startsWith("/data"))
         {
             path = path[5..$];
+            import std.stdio;
+            writeln(path);
             if (auto p = path in urlToPath)
             {
                 auto page = *p;
@@ -69,7 +74,7 @@ class Server
         }
         res.statusCode = 404;
         res.contentType = "text/html; charset=UTF-8";
-        res.writeBody(`<html><body><h1>Not Found</h1>The document was not found. If the mirror is still in progress, please be patient.</body></html>`);
+        res.bodyWriter.write(`<html><body><h1>Not Found</h1>The document was not found. If the mirror is still in progress, please be patient.</body></html>`);
     }
 
     void reloadMap()
@@ -78,12 +83,12 @@ class Server
     }
 }
 
-void run(string urlString)
+void run(Config cfg)
 {
     //if (!finalizeCommandLineOptions()) return;
     // this shouldn't hurt but won't usually be necessary
     lowerPrivileges();
-    auto server = new Server(urlString);
+    auto server = new Server(cfg);
     server.start();
     runEventLoop();
 }

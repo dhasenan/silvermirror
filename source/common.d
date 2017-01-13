@@ -1,5 +1,8 @@
 module mirror.common;
 
+import mirror.config;
+
+import std.experimental.logger;
 import std.string : replace;
 import std.stdio : File;
 import std.file : readText;
@@ -11,14 +14,18 @@ string relPath(URL u)
     return "/data" ~ u.path;
 }
 
-string getBaseDir(string url)
+string getBaseDir(Config config)
 {
-    return url.replace(":", "_").replace("/", "-");
+    if (config.path)
+    {
+        return config.path;
+    }
+    return config.baseURL.host;
 }
 
-string getMapFile(string url)
+string getMapFile(Config config)
 {
-    return "map_" ~ url.replace(":", "_").replace("/", "-");
+    return config.path ~ "/map";
 }
 
 struct Page
@@ -63,9 +70,9 @@ class Map
     void add(Page p)
     {
         import std.stdio;
-        writefln("adding a page for url %s", p.url);
+        // writefln("adding a page for url %s", p.url);
         pages[p.url.path] = p;
-        writefln("now have %s pages", pages.length);
+        // writefln("now have %s pages", pages.length);
         auto f = File(filename, "a");
         write(f, p, pages.length <= 1);
         f.flush;
@@ -81,6 +88,8 @@ class Map
     
     void read()
     {
+        import std.stdio;
+        writefln("reading %s", filename);
         auto text = filename.readText();
         auto range = `{"values":[` ~ text ~ `]}`;
         auto js = range.parseJson;
@@ -112,12 +121,8 @@ class Map
         import std.stdio : writefln;
         if (!first)
         {
-            writefln("page %s is not the first page; inserting separator", p.url);
+            // writefln("page %s is not the first page; inserting separator", p.url);
             f.write(",\n");
-        }
-        else
-        {
-            writefln("page %s is the first page; skipping separator", p.url);
         }
         auto js = Json.emptyObject;
         js["url"] = p.url.toString;

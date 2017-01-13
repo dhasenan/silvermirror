@@ -2,6 +2,8 @@ module mirror.downloader;
 
 import mirror.common;
 import mirror.html_template;
+import mirror.config;
+import mirror.ratelimit;
 
 import std.datetime;
 import std.algorithm;
@@ -26,20 +28,26 @@ class Downloader
 
     RedBlackTree!URL urls;
     Map urlMap;
+    Config cfg;
     URL base;
     Template templ;
+    RateLimiter rateLimiter;
     string queueFile;
     string mapFile;
     string baseDir;
 
-    this(string base, Template templ)
+    this(Config config)
     {
+        this.cfg = config;
         this.urls = new RedBlackTree!URL;
-        this.base = base.parseURL;
-        baseDir = getBaseDir(base);
-        queueFile = "queue_" ~ baseDir;
-        urlMap = new Map(getMapFile(base));
-        this.templ = templ;
+        this.base = config.baseURL;
+        this.templ = config.htmlTemplate;
+        this.rateLimiter = config.rateLimiter;
+        baseDir = config.path;
+        queueFile = baseDir ~ "/queue";
+        urlMap = new Map(getMapFile(config));
+        // We use mkdirRecurse because it doesn't throw if the directory already exists.
+        baseDir.mkdirRecurse();
     }
 
     void run()
@@ -63,7 +71,12 @@ class Downloader
             urlMap.read();
             writefln("read %s urls from already-downloaded map", urlMap.length);
             before = urlMap.length;
+            if (before > cfg.maxFiles)
+            {
+                return;
+            }
         }
+        size_t total = before;
 
         if (!exists(baseDir))
         {
@@ -81,12 +94,18 @@ class Downloader
             {
                 writeln("unexpected error ", e);
             }
+            if (urlMap.length >= cfg.maxFiles)
+            {
+                writefln("requested maximum of %s files downloaded; finished %s", cfg.maxFiles, total);
+                break;
+            }
 
             // Flush already-downloaded entries from the queue periodically.
             // This makes things a little nicer if the application exists.
-            auto now = Clock.currTime;
+            const now = Clock.currTime;
             if (now - lastWroteQueue > dur!"seconds"(15))
             {
+                lastWroteQueue = now;
                 auto f = File(queueFile, "w");
                 foreach (v; urls)
                 {
@@ -101,13 +120,13 @@ class Downloader
 
     void step()
     {
-        import std.array;
+        import std.array : Appender;
         if (urls.empty) return;
         auto u = urls.removeAny;
         if (u in urlMap) return;
 
         auto http = HTTP(u);
-        writefln("downloading [%s, %s] %s", urlMap.length, urls.length, u);
+        writefln("downloading [#%s; %s remaining] %s", urlMap.length, urls.length, u);
         string contentType;
         Appender!(ubyte[]) buf;
         http.onReceive = (ubyte[] data)
@@ -116,6 +135,7 @@ class Downloader
             rateLimiter.limitRate(data.length);
             return data.length;
         };
+        bool shutDown = false;
         http.onReceiveHeader = (const(char[]) title, const(char[]) value)
         {
             if (title.toLower == "content-type")
@@ -125,10 +145,12 @@ class Downloader
             else if (title.toLower == "content-length")
             {
                 auto contentLength = value.to!ulong;
-                if (contentLength > MAX_DOWNLOAD)
+                if (contentLength > cfg.fileSizeCutoff)
                 {
-                    infof("url %s: canceling download because the content length is %s, which is greater than the threshold of %s", u, contentLength, MAX_DOWNLOAD);
+                    infof("url %s: canceling download because the content length is %s, which is " ~
+                            "greater than the threshold of %s", u, contentLength, cfg.fileSizeCutoff);
                     http.shutdown;
+                    shutDown = true;
                 }
                 else
                 {
@@ -137,15 +159,16 @@ class Downloader
             }
         };
         http.perform();
+        if (shutDown) return;
         contentType = contentType.toLower;
-        if (contentType == "text/html" || contentType == "application/xhtml+xml")
+        if (contentType.startsWith("text/html") || contentType.startsWith("application/xhtml+xml"))
         {
-            writeln("content type is text/html; processing as html document");
+            //writeln("content type is text/html; processing as html document");
             processHtml(assumeUnique(cast(char[])buf.data), contentType, u);
         }
         else
         {
-            writeln("content type is ", contentType, "; just saving");
+            // writeln("content type is ", contentType, "; just saving");
             save(buf.data, contentType, u);
         }
     }
@@ -163,6 +186,7 @@ class Downloader
             {
                 auto dest = elem.getAttribute(v).idup;
                 auto u = url.resolve(dest);
+                // infof("%s resolved %s to %s", url, dest, u);
                 elem.setAttribute(v, relPath(u));
                 enqueue(u);
             }
@@ -174,35 +198,43 @@ class Downloader
     void save(const ubyte[] b, string contentType, URL u)
     {
         import std.digest.sha : sha1Of, toHexString;
-        import std.file : write;
-        auto name = baseDir ~ "/" ~ sha1Of(b).toHexString().idup;
+        import std.file : write, mkdirRecurse;
+        auto hash = sha1Of(b).toHexString().idup;
+        // There's a limit of 64k files/directory in ext4.
+        // Other filesystems probably the same.
+        // Shard things out. While it's not unthinkable to have 16 million files,
+        // this should be good out to four billion.
+        auto dir = baseDir ~ "/" ~ hash[0..2] ~ "/" ~ hash[2..4];
+        dir.mkdirRecurse;
+        auto name = dir ~ "/" ~ hash;
         write(name, b);
         urlMap.add(u, name, contentType);
     }
 
     void enqueue(URL u)
     {
+        u.fragment = null;
         if (u.host != base.host)
         {
-            writefln("url %s: doesn't have base host %s", u, base.host);
+            infof("url %s: doesn't have base host %s", u, base.host);
             return;
         }
         if (!u.path.startsWith(base.path))
         {
-            writefln("url %s: doesn't have base path %s", u, base.path);
+            infof("url %s: doesn't have base path %s", cast(const ubyte[])u.path, cast(const ubyte[])base.path);
             return;
         }
         if (u in urlMap)
         {
-            writefln("url %s: already saved to a file", u);
+            infof("url %s: already saved to a file", u);
             return;
         }
         if (!urls.equalRange(u).empty)
         {
-            writefln("url %s: already enqueued", u);
+            infof("url %s: already enqueued", u);
             return;
         }
-        writefln("url %s: enqueueing", u);
+        // writefln("url %s: enqueueing", u);
         urls.insert(u);
         append(queueFile, u.toString ~ "\n");
     }

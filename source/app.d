@@ -1,51 +1,38 @@
 module mirror.app;
 
+import std.experimental.logger;
 import std.getopt;
 import std.stdio;
+
+import mirror.config;
 import mirror.downloader;
 import mirror.server;
 import mirror.html_template;
 
 void main(string[] args)
 {
-    string serve;
-    string[] download;
-    string templ;
+    globalLogLevel = LogLevel.warning;
+    bool serve;
+    string configFile;
     bool helpWanted;
     auto info = getopt(
             args,
             "serve|s", &serve,
-            "download|d", &download,
-            "template|t", &templ,
+            "config|c", &configFile,
             "help|h", &helpWanted
           );
-    if (info.helpWanted || helpWanted)
+    if (info.helpWanted || helpWanted || !configFile)
     {
         defaultGetoptPrinter("mirror websites", info.options);
         return;
     }
+    auto cfg = new Config(configFile);
     if (serve)
     {
-        mirror.server.run(serve);
+        mirror.server.run(cfg);
     }
-    else if (download)
+    else
     {
-        Template t;
-        if (templ)
-        {
-            import std.file : readText;
-            t = Template.parse(templ.readText);
-        }
-        foreach (arg; download)
-        {
-            new Downloader(arg, t).run;
-        }
+        new Downloader(cfg).run;
     }
-}
-
-void showHelp(string exe)
-{
-    writefln("Usage:");
-    writefln("\t%s url [url...]", exe);
-    writefln("\t%s --serve url", exe);
 }

@@ -1,6 +1,10 @@
 module mirror.config;
 
+import core.time;
+
 import mirror.html_template;
+import mirror.ratelimit;
+import mirror.common;
 
 import url;
 
@@ -11,6 +15,9 @@ class Config
     /// the URL to download
     URL baseURL;
 
+    /// where to put data
+    string path;
+
     /// skip files larger than this
     size_t fileSizeCutoff = 32 * 1024 * 1024;
 
@@ -18,7 +25,7 @@ class Config
     size_t maxFiles = size_t.max;
 
     /// bytes/second target
-    size_t rateLimit = size_t.max;   
+    RateLimiter rateLimiter;
 
     /// the template to use on downloaded HTML documents
     Template htmlTemplate;
@@ -35,7 +42,7 @@ class Config
         }
         if ("fileSizeCutoff" in json)
         {
-            fileSizeCutoff = json["fileSizeCutoff"].get!size_t;
+            fileSizeCutoff = 1024 * json["fileSizeCutoff"].get!size_t;
         }
         if ("maxFiles" in json)
         {
@@ -43,7 +50,11 @@ class Config
         }
         if ("rateLimit" in json)
         {
-            rateLimit = json["rateLimit"].get!size_t;
+            rateLimiter = new RateLimiter(1024 * json["rateLimit"].get!size_t, 1.seconds);
+        }
+        else
+        {
+            rateLimiter = new RateLimiter(size_t.max, 1.seconds);
         }
         if ("userAgent" in json)
         {
@@ -55,10 +66,19 @@ class Config
             auto templateFile = json["template"].get!string;
             htmlTemplate = Template.parse(templateFile.readText);
         }
+        if ("path" in json)
+        {
+            path = json["path"].get!string;
+        }
+        else
+        {
+            path = baseURL.host;
+        }
     }
 
     this(string path)
     {
+        import std.file : readText;
         this(path.readText.parseJsonString);
     }
 }

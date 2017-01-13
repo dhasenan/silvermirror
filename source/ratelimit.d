@@ -2,10 +2,11 @@ module mirror.ratelimit;
 
 import std.container.rbtree;
 import std.datetime;
+import core.thread;
 
 struct Parcel
 {
-    DateTime time;
+    SysTime time;
     size_t size;
 
     int opCmp(ref const Parcel other) const
@@ -79,8 +80,8 @@ class RateLimiter
             // This would have been okay in 11 seconds.
             // So we sleep for 1 second and everything is okay.
             auto d = total / cast(double)perWindow;
-            auto s = (d - 1) * window;
-            Thread.sleep(s);
+            auto s = (d - 1) * window.total!"seconds";
+            Thread.sleep((cast(long)s).seconds);
         }
     }
 }
