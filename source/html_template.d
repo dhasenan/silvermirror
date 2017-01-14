@@ -2,6 +2,7 @@ module mirror.html_template;
 
 import arsd.dom;
 import std.array;
+import std.experimental.logger : debugf;
 import std.format;
 import std.string;
 import std.variant;
@@ -97,8 +98,7 @@ struct Template
                 throw new Exception("empty #{} at char %s".format(orig.length - value.length));
             }
             auto v = value[0..end];
-            import std.stdio;
-            writefln("have content %s; start=%s; end=%s", v, idx, end);
+            debugf("have content %s; start=%s; end=%s", v, idx, end);
             value = value[end + 1 .. $];
             Selector selector;
             if (v[0] == '-')
@@ -193,3 +193,37 @@ struct Selector
 }
 
 alias Elem = Algebraic!(Literal, Selector);
+
+
+unittest
+{
+    import std.array : array;
+    import std.algorithm : filter;
+    import std.conv : to;
+
+    auto original = `<html>
+    <head>
+        <title>Original Title</title>
+    </head>
+    <body>
+        <div id="main">
+            <span class="foo"><em>Some</em> things are better left unsaid</span>
+        </div>
+    </body>
+</html>`;
+    auto templ = Template.parse(`#{title}
+#{-#main}
+#{$span.foo}
+#{url}`);
+    auto doc = new Document(original);
+    auto eval = templ.evaluate(doc, "http://example.org".parseURL);
+    auto expected = `<title>Original Title</title>
+            <span class="foo"><em>Some</em> things are better left unsaid</span>
+Some things are better left unsaid
+http://example.org/`;
+    auto reallyExpected = expected.filter!(x => x != ' ' && x != '\n').array.to!string;
+    auto actual = eval.filter!(x => x != ' ' && x != '\n').array.to!string;
+    assert(
+        actual == reallyExpected,
+        "Expected:\n[[[" ~ reallyExpected ~ "]]]\nActual:\n[[[" ~ actual ~ "]]]");
+}

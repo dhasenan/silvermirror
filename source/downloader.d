@@ -54,10 +54,16 @@ class Downloader
     {
         // Read queue from disk
         urls.clear();
+        if (!exists(queueFile) && exists(queueFile ~ ".new"))
+        {
+            // If both exist, we don't know if we finished writing to the new queue file yet.
+            // If only the new one exists, we know we finished writing it.
+            std.file.rename(queueFile ~ ".new", queueFile);
+        }
         if (exists(queueFile))
         {
             infof("reading queue file");
-            auto queueText = queueFile.readText;
+            auto queueText = queueFile.exists ? queueFile.readText : (queueFile ~ ".new").readText;
             infof("read queuefile text");
             while (queueText.length > 0)
             {
@@ -120,18 +126,25 @@ class Downloader
             }
 
             // Flush already-downloaded entries from the queue periodically.
-            // This makes things a little nicer if the application exists.
+            // This makes things a little nicer if the application exits.
             const now = Clock.currTime;
             if (now - lastWroteQueue > dur!"seconds"(15))
             {
                 lastWroteQueue = now;
-                auto f = File(queueFile, "w");
+                // Write to a new file and rename.
+                // This means we're still okay if the application quits in the middle of writing the queue.
+                auto tmpQueueFile = queueFile ~ ".new";
+                auto tmpOldQueueFile = queueFile ~ ".old";
+                auto f = File(tmpQueueFile, "w");
                 foreach (v; urls)
                 {
                     f.writeln(v);
                 }
                 f.flush;
                 f.close;
+                std.file.rename(queueFile, tmpOldQueueFile);
+                std.file.rename(tmpQueueFile, queueFile);
+                std.file.remove(tmpOldQueueFile);
             }
         }
         writefln("downloaded %s files", urlMap.length - before);
@@ -143,6 +156,15 @@ class Downloader
         if (urls.empty) return;
         auto u = urls.removeAny;
         if (u in urlMap) return;
+        auto s = u.toString;
+        foreach (e; cfg.exclude)
+        {
+            if (s.startsWith(e))
+            {
+                infof("excluding %s due to exclude %s (new exclude?)", u, e);
+                return;
+            }
+        }
 
         auto http = HTTP(u.toString);
         writefln("downloading [#%s; %s queued] %s", urlMap.length, urls.length, u);
@@ -217,11 +239,18 @@ class Downloader
         {
             foreach (elem; doc.getElementsByTagName(k))
             {
-                auto dest = elem.getAttribute(v).idup;
-                auto u = url.resolve(dest);
-                infof("%s resolved %s to %s", url, dest, u);
-                elem.setAttribute(v, relPath(u));
-                enqueue(u);
+                auto dest = elem.getAttribute(v).idup.strip;
+                try
+                {
+                    auto u = url.resolve(dest);
+                    infof("%s resolved %s to %s", url, dest, u);
+                    elem.setAttribute(v, relPath(u));
+                    enqueue(u);
+                }
+                catch (URLException e)
+                {
+                    // skip this URL
+                }
             }
         }
         auto s = templ.evaluate(doc, url);
