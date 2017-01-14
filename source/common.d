@@ -59,22 +59,32 @@ class Map
 
     Page* opIn_r(URL url)
     {
-        return url.path in pages;
+        return opIn_r(url.toPathAndQueryString);
     }
 
     Page* opIn_r(string path)
     {
-        return path in pages;
+        infof("Map.opIn: checking path %s", path);
+        auto p = path in pages;
+        if (p is null)
+        {
+            infof("%s not found", path);
+        }
+        else
+        {
+            infof("%s: returning page with url %s", path, p.url);
+        }
+        return p;
     }
 
     void add(Page p)
     {
         import std.stdio;
         // writefln("adding a page for url %s", p.url);
-        pages[p.url.path] = p;
+        pages[p.url.toPathAndQueryString] = p;
         // writefln("now have %s pages", pages.length);
         auto f = File(filename, "a");
-        write(f, p, pages.length <= 1);
+        write(f, p);
         f.flush;
         f.close;
     }
@@ -88,17 +98,26 @@ class Map
     
     void read()
     {
-        import std.stdio;
+        import std.stdio, std.file;
         writefln("reading %s", filename);
+        if (!(filename.exists && filename.isFile))
+        {
+            // nothing to read
+            return;
+        }
         auto text = filename.readText();
-        auto range = `{"values":[` ~ text ~ `]}`;
+        // Whenever we write a value, we write a comma before.
+        // Start with a placeholder.
+        auto range = `{"values":[null` ~ text ~ `]}`;
         auto js = range.parseJson;
         auto vals = js["values"];
         Page[string] p;
         foreach (size_t i, Json v; vals)
         {
+            // skip the placeholder
+            if (v.type == Json.Type.null_) continue;
             auto u = v["url"].get!string.parseURL;
-            p[u.path] = Page(u, v["path"].get!string, v["contentType"].get!string);
+            p[u.toPathAndQueryString] = Page(u, v["path"].get!string, v["contentType"].get!string);
         }
         pages = p;
     }
@@ -106,24 +125,17 @@ class Map
     void write()
     {
         auto f = File(filename, "w");
-        bool first = true;
         foreach (k, p; pages)
         {
-            write(f, p, first);
-            first = false;
+            write(f, p);
         }
         f.flush;
         f.close;
     }
 
-    private void write(ref File f, Page p, bool first)
+    private void write(ref File f, Page p)
     {
-        import std.stdio : writefln;
-        if (!first)
-        {
-            // writefln("page %s is not the first page; inserting separator", p.url);
-            f.write(",\n");
-        }
+        f.write(",\n");
         auto js = Json.emptyObject;
         js["url"] = p.url.toString;
         js["path"] = p.path;

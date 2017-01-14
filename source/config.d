@@ -34,6 +34,8 @@ class Config
     string userAgent = "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) " ~ 
         "Gecko/20100101 Firefox/47.0";
 
+    string[] exclude;
+
     this(Json json)
     {
         if ("url" in json)
@@ -73,6 +75,13 @@ class Config
         else
         {
             path = baseURL.host;
+        }
+        if ("exclude" in json)
+        {
+            foreach (size_t i, Json v; json["exclude"])
+            {
+                exclude ~= v.get!string;
+            }
         }
     }
 

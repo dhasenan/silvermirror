@@ -37,7 +37,7 @@ class Server
     {
         // TODO content-type
         auto u = req.requestURL.parseURL;
-        auto path = u.path;
+        auto path = u.toPathAndQueryString;
         if (path == "/")
         {
             res.bodyWriter.write(`<html><head><title>Index of`);
@@ -51,9 +51,9 @@ class Server
             foreach (p; s)
             {
                 res.bodyWriter.write(`<div><a href="/data`);
-                res.bodyWriter.write(p.url.path);
+                res.bodyWriter.write(p.url.toPathAndQueryString);
                 res.bodyWriter.write(`">`);
-                res.bodyWriter.write(p.url.path);
+                res.bodyWriter.write(p.url.toPathAndQueryString);
                 res.bodyWriter.write("</a></div>");
             }
             res.bodyWriter.write(`</body></html>`);

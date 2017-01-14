@@ -20,7 +20,7 @@ import std.typecons : tuple;
 import std.file;
 
 import arsd.dom;
-import url : parseURL, URL;
+import url : parseURL, URL, URLException;
 
 class Downloader
 {
@@ -56,27 +56,46 @@ class Downloader
         urls.clear();
         if (exists(queueFile))
         {
+            infof("reading queue file");
+            auto queueText = queueFile.readText;
+            infof("read queuefile text");
+            while (queueText.length > 0)
+            {
+                auto next = queueText.indexOf('\n');
+                auto curr = queueText[0..next];
+                queueText = queueText[next + 1 .. $];
+                try
+                {
+                    urls.insert(curr.parseURL);
+                }
+                catch (URLException e)
+                {
+                    infof("skipping url %s: %s", curr, e);
+                }
+                
+                if (urls.length % 100 == 0)
+                {
+                    infof("read %s urls so far", urls.length);
+                }
+            }
             urls.insert(queueFile.readText().splitLines().map!parseURL);
             writefln("read %s urls from existing queue", urls.length);
         }
         if (urls.empty)
         {
+            infof("no URLs found; inserting base URL");
             urls.insert(this.base);
         }
 
         // Read map from disk
-        size_t before = 0;
-        if (exists(mapFile))
+        infof("reading URL map from disk");
+        urlMap.read();
+        writefln("read %s urls from already-downloaded map", urlMap.length);
+        if (urlMap.length > cfg.maxFiles)
         {
-            urlMap.read();
-            writefln("read %s urls from already-downloaded map", urlMap.length);
-            before = urlMap.length;
-            if (before > cfg.maxFiles)
-            {
-                return;
-            }
+            return;
         }
-        size_t total = before;
+        auto before = urlMap.length;
 
         if (!exists(baseDir))
         {
@@ -96,7 +115,7 @@ class Downloader
             }
             if (urlMap.length >= cfg.maxFiles)
             {
-                writefln("requested maximum of %s files downloaded; finished %s", cfg.maxFiles, total);
+                writefln("requested maximum of %s files downloaded; finished %s", cfg.maxFiles, urlMap.length);
                 break;
             }
 
@@ -125,8 +144,8 @@ class Downloader
         auto u = urls.removeAny;
         if (u in urlMap) return;
 
-        auto http = HTTP(u);
-        writefln("downloading [#%s; %s remaining] %s", urlMap.length, urls.length, u);
+        auto http = HTTP(u.toString);
+        writefln("downloading [#%s; %s queued] %s", urlMap.length, urls.length, u);
         string contentType;
         Appender!(ubyte[]) buf;
         http.onReceive = (ubyte[] data)
@@ -175,7 +194,21 @@ class Downloader
 
     void processHtml(string html, string contentType, URL url)
     {
-        auto doc = new Document(html);
+        auto doc = new Document();
+        auto idx = contentType.indexOf("charset=");
+        string encoding = null;
+        if (idx >= 0)
+        {
+            auto part = contentType[idx..$];
+            auto start = part.indexOf('=') + 1;
+            encoding = part[start..$];
+            auto end = encoding.indexOf(';');
+            if (end >= 0)
+            {
+                encoding = encoding[0..end];
+            }
+        }
+        doc.parse(html, false, false, encoding);
         // We're looking for <link rel=""> and <a href="">.
         // First pass, we skip images and stylesheets.
         // Also, assume it's UTF-8.
@@ -186,7 +219,7 @@ class Downloader
             {
                 auto dest = elem.getAttribute(v).idup;
                 auto u = url.resolve(dest);
-                // infof("%s resolved %s to %s", url, dest, u);
+                infof("%s resolved %s to %s", url, dest, u);
                 elem.setAttribute(v, relPath(u));
                 enqueue(u);
             }
@@ -213,6 +246,7 @@ class Downloader
 
     void enqueue(URL u)
     {
+        infof("considering url %s", u);
         u.fragment = null;
         if (u.host != base.host)
         {
@@ -233,6 +267,14 @@ class Downloader
         {
             infof("url %s: already enqueued", u);
             return;
+        }
+        foreach (e; cfg.exclude)
+        {
+            if (u.toString.startsWith(e))
+            {
+                infof("url %s: excluded by config (exclusion %s)", u, e);
+                return;
+            }
         }
         // writefln("url %s: enqueueing", u);
         urls.insert(u);
