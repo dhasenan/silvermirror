@@ -2,7 +2,7 @@ module mirror.html_template;
 
 import arsd.dom;
 import std.array;
-import std.experimental.logger : debugf;
+import std.experimental.logger : tracef;
 import std.format;
 import std.string;
 import std.variant;
@@ -98,7 +98,7 @@ struct Template
                 throw new Exception("empty #{} at char %s".format(orig.length - value.length));
             }
             auto v = value[0..end];
-            debugf("have content %s; start=%s; end=%s", v, idx, end);
+            tracef("have content %s; start=%s; end=%s", v, idx, end);
             value = value[end + 1 .. $];
             Selector selector;
             if (v[0] == '-')
