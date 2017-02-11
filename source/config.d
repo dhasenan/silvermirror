@@ -1,6 +1,7 @@
 module mirror.config;
 
 import core.time;
+import std.regex;
 
 import mirror.html_template;
 import mirror.ratelimit;
@@ -34,7 +35,17 @@ class Config
     string userAgent = "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) " ~ 
         "Gecko/20100101 Firefox/47.0";
 
-    string[] exclude;
+    /// URL patterns to ignore.
+    Regex!(char)[] exclude;
+
+    /**
+    URL patterns to include. If this is specified, only matching URLs will be searched or downloaded.
+
+    The default is to include everything.
+
+    Excludes happen after includes.
+    */
+    Regex!(char)[] include;
 
     this(Json json)
     {
@@ -80,7 +91,7 @@ class Config
         {
             foreach (size_t i, Json v; json["exclude"])
             {
-                exclude ~= v.get!string;
+                exclude ~= regex(v.get!string);
             }
         }
     }

@@ -22,14 +22,13 @@ class Server
         urlToPath = new Map(getMapFile(cfg));
     }
 
-    void start()
+    void start(ushort port)
     {
         reloadMap();
         setTimer(5.seconds, &reloadMap);
 
         auto settings = new HTTPServerSettings;
-        settings.port = 7761;
-        //settings.bindAddresses = ["0.0.0.0"];
+        settings.port = port;
         listenHTTP(settings, &handleRequest);
     }
 
@@ -83,12 +82,12 @@ class Server
     }
 }
 
-void run(Config cfg)
+void run(Config cfg, ushort port)
 {
     //if (!finalizeCommandLineOptions()) return;
     // this shouldn't hurt but won't usually be necessary
     lowerPrivileges();
     auto server = new Server(cfg);
-    server.start();
+    server.start(port);
     runEventLoop();
 }

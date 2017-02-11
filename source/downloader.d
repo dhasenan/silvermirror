@@ -16,6 +16,7 @@ import std.experimental.logger;
 import std.exception : assumeUnique;
 import std.string;
 import std.digest.sha;
+import std.regex;
 import std.typecons : tuple;
 import std.file;
 
@@ -150,6 +151,29 @@ class Downloader
         writefln("downloaded %s files", urlMap.length - before);
     }
 
+    bool shouldDownload(string url)
+    {
+        foreach (e; cfg.exclude)
+        {
+            if (!url.matchFirst(e).empty)
+            {
+                return false;
+            }
+        }
+        if (cfg.include.length == 0)
+        {
+            return true;
+        }
+        foreach (e; cfg.include)
+        {
+            if (!url.matchFirst(e).empty)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     void step()
     {
         import std.array : Appender;
@@ -157,15 +181,7 @@ class Downloader
         auto u = urls.removeAny;
         if (u in urlMap) return;
         auto s = u.toString;
-        foreach (e; cfg.exclude)
-        {
-            if (s.startsWith(e))
-            {
-                infof("excluding %s due to exclude %s (new exclude?)", u, e);
-                return;
-            }
-        }
-
+        if (!shouldDownload(s)) return;
         auto http = HTTP(u.toString);
         writefln("downloading [#%s; %s queued] %s", urlMap.length, urls.length, u);
         string contentType;
@@ -297,13 +313,10 @@ class Downloader
             infof("url %s: already enqueued", u);
             return;
         }
-        foreach (e; cfg.exclude)
+        if (!shouldDownload(u.toString))
         {
-            if (u.toString.startsWith(e))
-            {
-                infof("url %s: excluded by config (exclusion %s)", u, e);
-                return;
-            }
+            infof("url %s: excluded from config", u);
+            return;
         }
         // writefln("url %s: enqueueing", u);
         urls.insert(u);

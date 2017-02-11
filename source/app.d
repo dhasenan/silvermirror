@@ -15,10 +15,12 @@ void main(string[] args)
     string configFile;
     bool helpWanted;
     bool verbose;
+    ushort port = 7761;
     auto info = getopt(
             args,
             "serve|s", &serve,
             "config|c", &configFile,
+            "port|p", &port,
             "help|h", &helpWanted,
             "verbose|v", &verbose
           );
@@ -39,7 +41,7 @@ void main(string[] args)
     infof("loaded config");
     if (serve)
     {
-        mirror.server.run(cfg);
+        mirror.server.run(cfg, port);
     }
     else
     {
